@@ -1,0 +1,148 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  STUDENT
+  ADMIN
+  SUPERVISOR
+}
+
+enum DietaryPreference {
+  VEG
+  NON_VEG
+  JAIN
+}
+
+enum MealType {
+  BREAKFAST
+  LUNCH
+  SNACKS
+  DINNER
+}
+
+enum AttendanceStatus {
+  EATING
+  SKIPPED
+  NOT_RESPONDED
+}
+
+enum IssueTag {
+  TASTE
+  QUALITY
+  HYGIENE
+  PORTION
+  COLD_FOOD
+  LATE_SERVICE
+  OTHER
+}
+
+model Hostel {
+  id        String   @id @default(uuid())
+  name      String
+  code      String   @unique
+  address   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users User[]
+  menus Menu[]
+  polls Poll[]
+}
+
+model User {
+  id          String            @id @default(uuid())
+  email       String            @unique
+  password    String
+  name        String
+  role        Role              @default(STUDENT)
+  dietaryPref DietaryPreference @default(VEG)
+  rollNumber  String?
+  roomNumber  String?
+  hostelId    String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  hostel      Hostel            @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  attendances Attendance[]
+  feedbacks   Feedback[]
+  pollVotes   PollVote[]
+
+  @@index([hostelId])
+}
+
+model Menu {
+  id          String   @id @default(uuid())
+  date        DateTime @db.Date
+  mealType    MealType
+  items       String[]
+  isSpecial   Boolean  @default(false)
+  calories    Int?
+  hostelId    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  hostel      Hostel   @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+
+  @@unique([date, mealType, hostelId])
+  @@index([hostelId, date])
+}
+
+model Attendance {
+  id        String           @id @default(uuid())
+  userId    String
+  date      DateTime         @db.Date
+  mealType  MealType
+  status    AttendanceStatus @default(NOT_RESPONDED)
+  updatedAt DateTime         @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date, mealType])
+  @@index([date, mealType, status])
+}
+
+model Feedback {
+  id        String     @id @default(uuid())
+  userId    String
+  date      DateTime   @db.Date
+  mealType  MealType
+  rating    Int
+  comment   String?
+  tags      IssueTag[]
+  createdAt DateTime   @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([date, mealType])
+}
+
+model Poll {
+  id        String     @id @default(uuid())
+  question  String
+  options   String[]
+  hostelId  String
+  expiresAt DateTime
+  createdAt DateTime   @default(now())
+
+  hostel Hostel     @relation(fields: [hostelId], references: [id], onDelete: Cascade)
+  votes  PollVote[]
+}
+
+model PollVote {
+  id          String   @id @default(uuid())
+  pollId      String
+  userId      String
+  optionIndex Int
+  createdAt   DateTime @default(now())
+
+  poll Poll @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, userId])
+}
