@@ -1,35 +1,65 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { verifyPassword, signToken } from '@/lib/auth';
-import { loginSchema } from '@/lib/validations';
+import { prisma } from '@/lib/prisma';
+import { verifyOtpCode } from '@/lib/otp';
+import bcrypt from 'bcryptjs';
+
+const JWT_SECRET = process.env.JWT_SECRET || 'hs3-super-secure-production-jwt-secret-key-32chars';
+
+function signJwt(payload: object): string {
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const encodedHeader = Buffer.from(JSON.stringify(header)).toString('base64url');
+  const encodedPayload = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const signature = Buffer.from(`${encodedHeader}.${encodedPayload}.${JWT_SECRET}`).toString('base64url');
+  return `${encodedHeader}.${encodedPayload}.${signature}`;
+}
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { email, password } = loginSchema.parse(body);
+    const { email, password, otp, authType = 'PASSWORD' } = body;
 
-    const user = await db.user.findUnique({
-      where: { email },
+    if (!email) {
+      return NextResponse.json({ error: 'Email is required.' }, { status: 400 });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+
+    const user = await prisma.user.findUnique({
+      where: { email: cleanEmail },
+      include: { hostel: true },
     });
 
     if (!user) {
-      return NextResponse.json(
-        { error: 'Invalid email or password' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Account not found.' }, { status: 404 });
     }
 
-    const isValidPassword = await verifyPassword(password, user.password);
-    if (!isValidPassword) {
-      return NextResponse.json(
-        { error: 'Invalid email or password' },
-        { status: 401 }
-      );
+    // Branch 1: OTP Authentication
+    if (authType === 'OTP') {
+      if (!otp) {
+        return NextResponse.json({ error: 'OTP code is required.' }, { status: 400 });
+      }
+
+      const isValid = await verifyOtpCode(cleanEmail, otp, 'LOGIN');
+      if (!isValid) {
+        return NextResponse.json({ error: 'Invalid or expired OTP code.' }, { status: 401 });
+      }
+    } 
+    // Branch 2: Standard Password Authentication
+    else {
+      if (!password) {
+        return NextResponse.json({ error: 'Password is required.' }, { status: 400 });
+      }
+
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+      if (!isPasswordValid) {
+        return NextResponse.json({ error: 'Invalid password credentials.' }, { status: 401 });
+      }
     }
 
-    const token = await signToken({
-      userId: user.id,
+    const token = signJwt({
+      id: user.id,
       email: user.email,
+      name: user.name,
       role: user.role,
       hostelId: user.hostelId,
     });
@@ -41,29 +71,21 @@ export async function POST(req: Request) {
         name: user.name,
         email: user.email,
         role: user.role,
-        dietaryPref: user.dietaryPref,
-        hostelId: user.hostelId,
       },
     });
 
     response.cookies.set({
-      name: 'hs3_token',
+      name: 'token',
       value: token,
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
       path: '/',
+      sameSite: 'lax',
       maxAge: 60 * 60 * 24 * 7,
     });
 
     return response;
   } catch (error: any) {
-    if (error?.errors) {
-      return NextResponse.json({ error: error.errors[0].message }, { status: 400 });
-    }
-    return NextResponse.json(
-      { error: 'Internal server error while logging in' },
-      { status: 500 }
-    );
+    console.error('Login error:', error);
+    return NextResponse.json({ error: error.message || 'Login failed.' }, { status: 500 });
   }
 }
