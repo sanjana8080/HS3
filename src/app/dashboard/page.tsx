@@ -101,7 +101,6 @@ export default function StudentDashboard() {
   const lastAlertIdRef = useRef<string | null>(null);
   const bellRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on outside click
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (bellRef.current && !bellRef.current.contains(e.target as Node)) {
@@ -296,7 +295,7 @@ export default function StudentDashboard() {
   return (
     <div className="relative min-h-screen w-full bg-[#100e14] text-[#F5E6EB] font-sans pb-16">
       
-      {/* Pop-up Alert Banner */}
+      {/* Toast Alert */}
       {activeAlert && (
         <div className="fixed top-6 right-6 z-50 max-w-sm p-4 rounded-2xl bg-[#231b2c]/95 border border-[#F4A8C4]/40 shadow-2xl backdrop-blur-xl">
           <div className="flex items-start gap-3">
@@ -314,7 +313,7 @@ export default function StudentDashboard() {
         </div>
       )}
 
-      {/* Top Header with Bell Icon */}
+      {/* Header */}
       <header className="sticky top-0 z-30 w-full border-b border-[#F4A8C4]/10 bg-[#16131c]/80 backdrop-blur-xl">
         <div className="max-w-6xl mx-auto px-5 sm:px-8 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -334,7 +333,7 @@ export default function StudentDashboard() {
 
           <div className="flex items-center gap-3">
             
-            {/* Notification Bell Dropdown Button */}
+            {/* Bell Icon & Dropdown */}
             <div className="relative" ref={bellRef}>
               <button
                 onClick={() => {
@@ -398,7 +397,7 @@ export default function StudentDashboard() {
         </div>
       </header>
 
-      {/* Main Content Area */}
+      {/* Content */}
       <main className="max-w-6xl mx-auto px-5 sm:px-8 pt-8 space-y-8 relative z-10">
         <div className="relative p-6 sm:p-8 rounded-[2rem] bg-gradient-to-r from-[#201929]/90 to-[#191522]/90 border border-[#F4A8C4]/15 shadow-xl overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2">
@@ -425,7 +424,6 @@ export default function StudentDashboard() {
           </div>
         </div>
 
-        {/* Meal Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {meals.map((meal) => {
             const IconComponent = meal.icon;
@@ -522,7 +520,6 @@ export default function StudentDashboard() {
           })}
         </div>
 
-        {/* Feedback Section */}
         <div className="p-6 sm:p-8 rounded-[2rem] bg-[#17141f]/85 border border-[#F4A8C4]/15 shadow-xl">
           <div className="flex items-center gap-2.5 mb-2">
             <MessageSquarePlus className="w-5 h-5 text-[#F4A8C4]" />
