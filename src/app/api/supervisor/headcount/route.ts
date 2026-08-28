@@ -1,54 +1,76 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { db } from '@/lib/db';
+import { prisma } from '@/lib/prisma';
 import { verifyToken } from '@/lib/auth';
+import { MealType } from '@prisma/client';
 
-export async function GET() {
+function getTodayUTC(): Date {
+  const d = new Date();
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
+export async function GET(req: Request) {
   try {
-    const cookieStore = await cookies();
-    const token = cookieStore.get('hs3_token')?.value;
-    if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const cookieHeader = req.headers.get('cookie') || '';
+    const tokenMatch = cookieHeader.match(/token=([^;]+)/);
+    const token = tokenMatch ? tokenMatch[1] : null;
 
-    const payload = await verifyToken(token);
-    if (!payload || (payload.role !== 'SUPERVISOR' && payload.role !== 'ADMIN')) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    let userHostelId: string | undefined = undefined;
+
+    if (token) {
+      const payload = await verifyToken(token);
+      if (payload && typeof payload === 'object' && 'hostelId' in payload) {
+        userHostelId = payload.hostelId as string;
+      }
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getTodayUTC();
 
-    // Fetch total registered students in the hostel
-    const totalStudents = await db.user.count({
-      where: { hostelId: payload.hostelId, role: 'STUDENT' },
+    const userWhereClause = userHostelId
+      ? { role: 'STUDENT' as const, hostelId: userHostelId }
+      : { role: 'STUDENT' as const };
+
+    const totalStudents = await prisma.user.count({
+      where: userWhereClause,
     });
 
-    // Fetch attendance grouped by mealType and status
-    const attendances = await db.attendance.findMany({
-      where: {
-        date: today,
-        user: { hostelId: payload.hostelId },
-      },
-    });
+    const mealTypes: MealType[] = ['BREAKFAST', 'LUNCH', 'SNACKS', 'DINNER'];
+    const headcounts: Record<string, { eating: number; skipping: number; total: number }> = {};
 
-    // Aggregate counts
-    const mealTypes = ['BREAKFAST', 'LUNCH', 'SNACKS', 'DINNER'];
-    const summary = mealTypes.map((meal) => {
-      const mealRecords = attendances.filter((a) => a.mealType === meal);
-      const eatingCount = mealRecords.filter((a) => a.status === 'EATING').length;
-      const skippedCount = mealRecords.filter((a) => a.status === 'SKIPPED').length;
-      const unrespondedCount = totalStudents - (eatingCount + skippedCount);
+    for (const meal of mealTypes) {
+      const attendanceWhereClause = userHostelId
+        ? {
+            date: today,
+            mealType: meal,
+            user: { hostelId: userHostelId },
+          }
+        : {
+            date: today,
+            mealType: meal,
+          };
 
-      return {
-        mealType: meal,
-        eating: eatingCount,
-        skipped: skippedCount,
-        unresponded: Math.max(0, unrespondedCount),
-        totalStudents,
+      const records = await prisma.attendance.findMany({
+        where: attendanceWhereClause,
+        select: { status: true },
+      });
+
+      const eating = records.filter((r) => r.status === 'EATING').length;
+      const skipping = records.filter((r) => r.status === 'SKIPPED').length;
+
+      headcounts[meal] = {
+        eating,
+        skipping,
+        total: totalStudents,
       };
-    });
+    }
 
-    return NextResponse.json({ summary, totalStudents });
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to aggregate headcount data' }, { status: 500 });
+    return NextResponse.json({
+      date: today,
+      totalStudents,
+      headcounts,
+    });
+  } catch (error: any) {
+    console.error('Supervisor Headcount Error:', error);
+    return NextResponse.json({ error: 'Failed to fetch headcount data' }, { status: 500 });
   }
 }

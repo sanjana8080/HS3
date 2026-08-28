@@ -1,24 +1,18 @@
 import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/request';
+import type { NextRequest } from 'next/server';
 
 export function middleware(request: NextRequest) {
   const token = request.cookies.get('token')?.value;
   const { pathname } = request.nextUrl;
 
-  // Public paths that do not require authentication
-  const isPublicPath =
-    pathname.startsWith('/login') ||
-    pathname.startsWith('/register') ||
-    pathname.startsWith('/api/auth');
+  const isAuthPage = pathname.startsWith('/login') || pathname.startsWith('/register');
+  const isProtectedPage = pathname.startsWith('/dashboard') || pathname.startsWith('/supervisor');
 
-  // If user is trying to access protected route without a token
-  if (!token && !isPublicPath) {
-    const loginUrl = new URL('/login', request.url);
-    return NextResponse.redirect(loginUrl);
+  if (!token && isProtectedPage) {
+    return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  // If user is already logged in and visits login/register
-  if (token && (pathname === '/login' || pathname === '/register')) {
+  if (token && isAuthPage) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 

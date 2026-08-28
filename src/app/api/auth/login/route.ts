@@ -15,45 +15,32 @@ function signJwt(payload: object): string {
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { email, password, otp, authType = 'PASSWORD' } = body;
+    const { email, password, otp } = await req.json();
 
     if (!email) {
       return NextResponse.json({ error: 'Email is required.' }, { status: 400 });
     }
 
     const cleanEmail = email.toLowerCase().trim();
-
-    const user = await prisma.user.findUnique({
-      where: { email: cleanEmail },
-      include: { hostel: true },
-    });
+    const user = await prisma.user.findUnique({ where: { email: cleanEmail } });
 
     if (!user) {
-      return NextResponse.json({ error: 'Account not found.' }, { status: 404 });
+      return NextResponse.json({ error: 'No account found with this email.' }, { status: 404 });
     }
 
-    // Branch 1: OTP Authentication
-    if (authType === 'OTP') {
-      if (!otp) {
-        return NextResponse.json({ error: 'OTP code is required.' }, { status: 400 });
+    // Handle OTP verification or password check
+    if (otp) {
+      const isValidOtp = await verifyOtpCode(cleanEmail, otp);
+      if (!isValidOtp) {
+        return NextResponse.json({ error: 'Invalid or expired OTP code.' }, { status: 400 });
       }
-
-      const isValid = await verifyOtpCode(cleanEmail, otp, 'LOGIN');
-      if (!isValid) {
-        return NextResponse.json({ error: 'Invalid or expired OTP code.' }, { status: 401 });
-      }
-    } 
-    // Branch 2: Standard Password Authentication
-    else {
-      if (!password) {
-        return NextResponse.json({ error: 'Password is required.' }, { status: 400 });
-      }
-
+    } else if (password) {
       const isPasswordValid = await bcrypt.compare(password, user.password);
       if (!isPasswordValid) {
-        return NextResponse.json({ error: 'Invalid password credentials.' }, { status: 401 });
+        return NextResponse.json({ error: 'Invalid credentials.' }, { status: 401 });
       }
+    } else {
+      return NextResponse.json({ error: 'Password or OTP is required.' }, { status: 400 });
     }
 
     const token = signJwt({
@@ -86,6 +73,6 @@ export async function POST(req: Request) {
     return response;
   } catch (error: any) {
     console.error('Login error:', error);
-    return NextResponse.json({ error: error.message || 'Login failed.' }, { status: 500 });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
