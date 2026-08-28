@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import jwt from 'jsonwebtoken';
 import { prisma } from '@/lib/prisma';
 
 export async function GET(req: Request) {
@@ -47,7 +49,26 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { userId, mealType, rating, comment, tags } = body;
+    let { userId, mealType, rating, comment, tags } = body;
+
+    // Fallback: extract userId from the auth JWT token if not provided in payload
+    if (!userId) {
+      const cookieStore = await cookies();
+      const token = cookieStore.get('token')?.value;
+
+      if (token && process.env.JWT_SECRET) {
+        try {
+          const decoded: any = jwt.verify(token, process.env.JWT_SECRET);
+          userId = decoded.userId || decoded.id || decoded.sub;
+        } catch (e) {
+          console.error('Token verification failed:', e);
+        }
+      }
+    }
+
+    if (!userId) {
+      return NextResponse.json({ error: 'User not authenticated' }, { status: 401 });
+    }
 
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
@@ -55,8 +76,8 @@ export async function POST(req: Request) {
     const feedback = await prisma.feedback.create({
       data: {
         userId,
-        mealType,
-        rating: Number(rating),
+        mealType: mealType || 'LUNCH',
+        rating: Number(rating) || 5,
         comment: comment || null,
         tags: tags || [],
         date: today,
