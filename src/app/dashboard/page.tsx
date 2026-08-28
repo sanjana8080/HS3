@@ -92,8 +92,8 @@ export default function StudentDashboard() {
     async function syncDashboardData() {
       try {
         const [menuRes, attendanceRes] = await Promise.all([
-          fetch('/api/menu'),
-          fetch('/api/attendance'),
+          fetch('/api/menu', { credentials: 'include' }),
+          fetch('/api/attendance', { credentials: 'include' }),
         ]);
 
         let liveMeals = meals;
@@ -168,6 +168,7 @@ export default function StudentDashboard() {
       await fetch('/api/attendance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           mealName: targetMeal.name,
           status: nextStatus,
@@ -190,6 +191,7 @@ export default function StudentDashboard() {
       await fetch('/api/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           mealType: targetMeal.name,
           rating: starCount,
@@ -203,7 +205,10 @@ export default function StudentDashboard() {
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await fetch('/api/auth/logout', { 
+        method: 'POST',
+        credentials: 'include' 
+      });
     } catch (err) {
       console.error('Logout error:', err);
     } finally {
@@ -219,6 +224,7 @@ export default function StudentDashboard() {
       const res = await fetch('/api/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           comment: suggestion.trim(),
           mealType: 'LUNCH',

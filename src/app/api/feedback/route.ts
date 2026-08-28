@@ -51,17 +51,38 @@ export async function POST(req: Request) {
     const body = await req.json();
     let { userId, mealType, rating, comment, tags } = body;
 
-    // Fallback: extract userId from the auth JWT token if not provided in payload
+    // Extract authenticated userId from token cookie if not provided
     if (!userId) {
-      const cookieStore = await cookies();
-      const token = cookieStore.get('token')?.value;
+      let token: string | null = null;
+
+      // 1. Check raw cookie header
+      const rawCookie = req.headers.get('cookie') || '';
+      const match = rawCookie.match(/(?:^|;\s*)token=([^;]+)/);
+      if (match) {
+        token = decodeURIComponent(match[1]);
+      }
+
+      // 2. Next.js cookies helper fallback
+      if (!token) {
+        const cookieStore = await cookies();
+        token =
+          cookieStore.get('token')?.value ||
+          cookieStore.get('auth_token')?.value ||
+          cookieStore.get('session')?.value ||
+          null;
+      }
+
+      // 3. Authorization Bearer header fallback
+      if (!token) {
+        token = req.headers.get('authorization')?.replace('Bearer ', '') || null;
+      }
 
       if (token && process.env.JWT_SECRET) {
         try {
           const decoded: any = jwt.verify(token, process.env.JWT_SECRET);
-          userId = decoded.userId || decoded.id || decoded.sub;
-        } catch (e) {
-          console.error('Token verification failed:', e);
+          userId = decoded.userId || decoded.id || decoded.sub || decoded._id;
+        } catch (jwtErr) {
+          console.error('JWT verification failed in feedback route:', jwtErr);
         }
       }
     }
