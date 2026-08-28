@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { 
-  Utensils, 
   Sparkles, 
   Clock, 
   Check, 
@@ -28,6 +27,13 @@ interface Meal {
   calories: string;
   status: 'EATING' | 'SKIPPING' | 'PENDING';
   rating: number;
+}
+
+interface NotificationItem {
+  id: string;
+  title: string;
+  message: string;
+  createdAt: string;
 }
 
 const ICON_MAP: Record<string, any> = {
@@ -87,10 +93,25 @@ export default function StudentDashboard() {
 
   const [suggestion, setSuggestion] = useState('');
   const [submittedFeedback, setSubmittedFeedback] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [showBellDropdown, setShowBellDropdown] = useState(false);
   const [activeAlert, setActiveAlert] = useState<{ title: string; message: string } | null>(null);
+  
   const lastAlertIdRef = useRef<string | null>(null);
+  const bellRef = useRef<HTMLDivElement>(null);
 
-  // Synchronize menu & attendance
+  // Close dropdown on outside click
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (bellRef.current && !bellRef.current.contains(e.target as Node)) {
+        setShowBellDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const syncDashboardData = async () => {
     try {
       const [menuRes, attendanceRes] = await Promise.all([
@@ -154,25 +175,32 @@ export default function StudentDashboard() {
   useEffect(() => {
     syncDashboardData();
 
-    // Poll for menu update notifications every 10 seconds
-    const pollInterval = setInterval(async () => {
+    const fetchNotifications = async () => {
       try {
         const res = await fetch('/api/notifications', { credentials: 'include' });
         if (res.ok) {
           const data = await res.json();
-          const latest = data.notifications?.[0];
+          const list: NotificationItem[] = data.notifications || [];
+          setNotifications(list);
 
+          const latest = list[0];
           if (latest && latest.id !== lastAlertIdRef.current) {
+            if (lastAlertIdRef.current !== null) {
+              setActiveAlert({ title: latest.title, message: latest.message });
+              setUnreadCount((prev) => prev + 1);
+              syncDashboardData();
+              setTimeout(() => setActiveAlert(null), 7000);
+            }
             lastAlertIdRef.current = latest.id;
-            setActiveAlert({ title: latest.title, message: latest.message });
-            syncDashboardData(); // Refresh menu cards on new update
-            setTimeout(() => setActiveAlert(null), 7000);
           }
         }
       } catch (e) {
         console.error('Notification poll error:', e);
       }
-    }, 10000);
+    };
+
+    fetchNotifications();
+    const pollInterval = setInterval(fetchNotifications, 10000);
 
     return () => clearInterval(pollInterval);
   }, []);
@@ -268,9 +296,9 @@ export default function StudentDashboard() {
   return (
     <div className="relative min-h-screen w-full bg-[#100e14] text-[#F5E6EB] font-sans pb-16">
       
-      {/* Real-time Notification Toast */}
+      {/* Pop-up Alert Banner */}
       {activeAlert && (
-        <div className="fixed top-6 right-6 z-50 max-w-sm p-4 rounded-2xl bg-[#231b2c]/95 border border-[#F4A8C4]/40 shadow-2xl backdrop-blur-xl animate-in slide-in-from-top-4 duration-300">
+        <div className="fixed top-6 right-6 z-50 max-w-sm p-4 rounded-2xl bg-[#231b2c]/95 border border-[#F4A8C4]/40 shadow-2xl backdrop-blur-xl">
           <div className="flex items-start gap-3">
             <div className="p-2 rounded-xl bg-[#F4A8C4]/15 text-[#F4A8C4] shrink-0">
               <Bell className="w-4 h-4" />
@@ -286,11 +314,7 @@ export default function StudentDashboard() {
         </div>
       )}
 
-      {/* Ambient Glows */}
-      <div className="fixed -top-24 -left-24 w-[480px] h-[480px] bg-[#E8A598]/10 rounded-full blur-[160px] pointer-events-none" />
-      <div className="fixed -bottom-24 -right-24 w-[500px] h-[500px] bg-[#E8A4C8]/15 rounded-full blur-[180px] pointer-events-none" />
-
-      {/* Top Navigation */}
+      {/* Top Header with Bell Icon */}
       <header className="sticky top-0 z-30 w-full border-b border-[#F4A8C4]/10 bg-[#16131c]/80 backdrop-blur-xl">
         <div className="max-w-6xl mx-auto px-5 sm:px-8 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -309,10 +333,60 @@ export default function StudentDashboard() {
           </div>
 
           <div className="flex items-center gap-3">
+            
+            {/* Notification Bell Dropdown Button */}
+            <div className="relative" ref={bellRef}>
+              <button
+                onClick={() => {
+                  setShowBellDropdown(!showBellDropdown);
+                  setUnreadCount(0);
+                }}
+                className="relative p-2.5 rounded-xl bg-[#231b2c] hover:bg-[#2e233b] border border-[#F4A8C4]/20 text-[#F4A8C4] transition-colors cursor-pointer"
+                aria-label="View notifications"
+              >
+                <Bell className="w-4 h-4" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] font-bold flex items-center justify-center">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {showBellDropdown && (
+                <div className="absolute right-0 mt-3 w-80 sm:w-96 rounded-2xl bg-[#1a1523]/95 border border-[#F4A8C4]/30 shadow-2xl backdrop-blur-2xl p-4 z-50 space-y-3">
+                  <div className="flex items-center justify-between pb-2 border-b border-white/[0.08]">
+                    <span className="text-xs font-bold text-[#FFF0F5] flex items-center gap-1.5">
+                      <Bell className="w-3.5 h-3.5 text-[#F4A8C4]" /> Recent Notifications
+                    </span>
+                    <span className="text-[10px] text-[#8C8198]">Email & Web Alerts</span>
+                  </div>
+
+                  <div className="max-h-72 overflow-y-auto space-y-2 pr-1">
+                    {notifications.length === 0 ? (
+                      <p className="text-center py-6 text-xs text-[#7A6E85]">No notifications yet</p>
+                    ) : (
+                      notifications.map((n) => (
+                        <div key={n.id} className="p-3 rounded-xl bg-[#110e16]/80 border border-white/[0.05] space-y-1">
+                          <div className="flex items-center justify-between">
+                            <h5 className="text-xs font-semibold text-[#F4A8C4]">{n.title}</h5>
+                            <span className="text-[9px] text-[#7A6E85]">
+                              {new Date(n.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-[#C9BAC8] leading-relaxed">{n.message}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="hidden sm:flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#1c1824] border border-white/[0.06] text-xs text-[#B3A6BC]">
               <Calendar className="w-3.5 h-3.5 text-[#F4A8C4]" />
               Today's Menu
             </div>
+            
             <button
               onClick={handleLogout}
               className="p-2 sm:px-3 sm:py-1.5 rounded-xl bg-[#231b2c] hover:bg-[#2e233b] border border-[#F4A8C4]/20 text-[#F4A8C4] text-xs font-medium flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -326,8 +400,6 @@ export default function StudentDashboard() {
 
       {/* Main Content Area */}
       <main className="max-w-6xl mx-auto px-5 sm:px-8 pt-8 space-y-8 relative z-10">
-        
-        {/* Banner Section */}
         <div className="relative p-6 sm:p-8 rounded-[2rem] bg-gradient-to-r from-[#201929]/90 to-[#191522]/90 border border-[#F4A8C4]/15 shadow-xl overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="space-y-2">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-[#F4A8C4]/10 border border-[#F4A8C4]/20 text-[#F4A8C4]">
@@ -362,7 +434,6 @@ export default function StudentDashboard() {
                 key={meal.id}
                 className="p-6 rounded-[1.75rem] bg-[#17141f]/85 border border-[#F4A8C4]/10 hover:border-[#F4A8C4]/25 shadow-lg backdrop-blur-lg flex flex-col justify-between gap-6 transition-all duration-300"
               >
-                {/* Header */}
                 <div>
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-3">
@@ -382,7 +453,6 @@ export default function StudentDashboard() {
                     </span>
                   </div>
 
-                  {/* Menu Items List */}
                   <div className="mt-4 pt-3 border-t border-white/[0.05] space-y-1.5">
                     <span className="text-[11px] uppercase tracking-wider font-semibold text-[#8C8198]">
                       On the menu:
@@ -398,7 +468,6 @@ export default function StudentDashboard() {
                   </div>
                 </div>
 
-                {/* Rating & Attendance Toggle */}
                 <div className="pt-4 border-t border-white/[0.05] flex flex-col gap-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-[#B3A6BC]">Rate this meal:</span>
@@ -448,13 +517,12 @@ export default function StudentDashboard() {
                     </button>
                   </div>
                 </div>
-
               </div>
             );
           })}
         </div>
 
-        {/* Suggestion / Food Request Box */}
+        {/* Feedback Section */}
         <div className="p-6 sm:p-8 rounded-[2rem] bg-[#17141f]/85 border border-[#F4A8C4]/15 shadow-xl">
           <div className="flex items-center gap-2.5 mb-2">
             <MessageSquarePlus className="w-5 h-5 text-[#F4A8C4]" />
@@ -489,7 +557,6 @@ export default function StudentDashboard() {
             </div>
           </form>
         </div>
-
       </main>
     </div>
   );
