@@ -18,7 +18,8 @@ import {
   Search,
   Filter,
   Loader2,
-  CheckCheck
+  CheckCheck,
+  AlertCircle
 } from 'lucide-react';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -69,6 +70,7 @@ export default function SupervisorDashboard() {
   const [selectedDay, setSelectedDay] = useState('Thursday');
   const [isPublishing, setIsPublishing] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [feedbacks, setFeedbacks] = useState<FeedbackItem[]>([]);
   const [acknowledgedIds, setAcknowledgedIds] = useState<Set<string>>(new Set());
   const [trends, setTrends] = useState<FeedbackTrend[]>([]);
@@ -128,12 +130,12 @@ export default function SupervisorDashboard() {
     async function loadSupervisorData() {
       try {
         const [menuRes, attRes, feedRes] = await Promise.all([
-          fetch('/api/menu', { credentials: 'include' }),
-          fetch('/api/attendance', { credentials: 'include' }),
-          fetch('/api/feedback', { credentials: 'include' }),
+          fetch('/api/menu', { credentials: 'include' }).catch(() => null),
+          fetch('/api/attendance', { credentials: 'include' }).catch(() => null),
+          fetch('/api/feedback', { credentials: 'include' }).catch(() => null),
         ]);
 
-        if (menuRes.ok) {
+        if (menuRes && menuRes.ok) {
           const mData = await menuRes.json();
           if (mData.meals && Array.isArray(mData.meals) && mData.meals.length > 0) {
             setMenuData((prev) => ({
@@ -150,7 +152,7 @@ export default function SupervisorDashboard() {
           }
         }
 
-        if (attRes.ok) {
+        if (attRes && attRes.ok) {
           const aData = await attRes.json();
           const headcounts = aData.headcounts || {};
 
@@ -191,7 +193,7 @@ export default function SupervisorDashboard() {
           }));
         }
 
-        if (feedRes.ok) {
+        if (feedRes && feedRes.ok) {
           const fData = await feedRes.json();
           if (fData.feedbacks) {
             const mappedFeedbacks: FeedbackItem[] = fData.feedbacks.map((fb: any) => ({
@@ -259,12 +261,13 @@ export default function SupervisorDashboard() {
   // Publish all updated meal plans to backend and trigger student notifications
   const handleSaveMenu = async () => {
     setIsPublishing(true);
+    setErrorMessage(null);
     try {
-      const savePromises = currentMeals.map((meal) => {
+      for (const meal of currentMeals) {
         const mealEnum = MEAL_NAME_TO_ENUM[meal.name] || 'LUNCH';
         const rawCalories = parseInt(meal.calories.replace(/\D/g, ''), 10) || 450;
 
-        return fetch('/api/menu', {
+        const res = await fetch('/api/menu', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -275,14 +278,19 @@ export default function SupervisorDashboard() {
             date: new Date().toISOString(),
           }),
         });
-      });
 
-      await Promise.all(savePromises);
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.error || `Failed to update ${meal.name}`);
+        }
+      }
 
       setSavedSuccess(true);
-      setTimeout(() => setSavedSuccess(false), 4500);
-    } catch (err) {
+      setTimeout(() => setSavedSuccess(false), 5000);
+    } catch (err: any) {
       console.error('Error publishing menu:', err);
+      setErrorMessage(err.message || 'Error publishing menu updates.');
+      setTimeout(() => setErrorMessage(null), 6000);
     } finally {
       setIsPublishing(false);
     }
@@ -348,7 +356,7 @@ export default function SupervisorDashboard() {
               {isPublishing ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Publishing...
+                  Publishing & Sending Emails...
                 </>
               ) : (
                 <>
@@ -412,13 +420,18 @@ export default function SupervisorDashboard() {
           </div>
         </div>
 
-        {/* Save Confirmation Toast */}
+        {/* Save Confirmation & Error Banners */}
         {savedSuccess && (
-          <div className="p-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-medium flex items-center justify-between shadow-lg animate-fade-in">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4" />
-              <span>Menu updates for <strong>{selectedDay}</strong> published! Real-time notifications dispatched to registered student portals.</span>
-            </div>
+          <div className="p-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-medium flex items-center gap-2 shadow-lg">
+            <Sparkles className="w-4 h-4 text-emerald-400" />
+            <span>Menu updates for <strong>{selectedDay}</strong> successfully published! Email alerts and portal notifications sent.</span>
+          </div>
+        )}
+
+        {errorMessage && (
+          <div className="p-4 rounded-2xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs font-medium flex items-center gap-2 shadow-lg">
+            <AlertCircle className="w-4 h-4 text-rose-400" />
+            <span>{errorMessage}</span>
           </div>
         )}
 
