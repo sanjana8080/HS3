@@ -146,3 +146,12 @@ model PollVote {
 
   @@unique([pollId, userId])
 }
+model OTP {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  code      String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([email])
+}

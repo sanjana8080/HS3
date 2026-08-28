@@ -112,9 +112,16 @@ export async function POST(req: Request) {
 
     const today = getTodayUTC();
 
+    const nameToEnum: Record<string, MealType> = {
+      'Breakfast': 'BREAKFAST',
+      'Lunch': 'LUNCH',
+      'Evening Snacks': 'SNACKS',
+      'Dinner': 'DINNER',
+    };
+
     if (Array.isArray(meals)) {
       for (const m of meals) {
-        const mealTypeEnum = m.mealType as MealType;
+        const mealTypeEnum = (m.mealType || nameToEnum[m.name] || 'BREAKFAST') as MealType;
         await prisma.menu.upsert({
           where: {
             date_mealType_hostelId: {

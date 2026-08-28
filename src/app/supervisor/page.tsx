@@ -14,7 +14,9 @@ import {
   MessageSquare, 
   LogOut,
   ChevronRight,
-  Flame
+  Flame,
+  Search,
+  Filter
 } from 'lucide-react';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -44,6 +46,16 @@ interface FeedbackTrend {
   sentiment: 'Critical' | 'Moderate' | 'Positive';
 }
 
+interface AttendanceRecord {
+  id: string;
+  name: string;
+  roomNumber: string;
+  rollNumber: string;
+  dietaryPref: string;
+  status: 'EATING' | 'SKIPPED' | 'NOT_RESPONDED';
+  lastUpdated: string | null;
+}
+
 export default function SupervisorDashboard() {
   const [selectedDay, setSelectedDay] = useState('Thursday');
   const [savedSuccess, setSavedSuccess] = useState(false);
@@ -55,6 +67,13 @@ export default function SupervisorDashboard() {
     skippedToday: 0,
     avgRating: 4.3,
   });
+
+  // Attendance Table state
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
+  const [selectedAttendanceMeal, setSelectedAttendanceMeal] = useState('LUNCH');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [loadingAttendance, setLoadingAttendance] = useState(true);
 
   const [menuData, setMenuData] = useState<{ [day: string]: MealPlan[] }>({
     Thursday: [
@@ -186,6 +205,26 @@ export default function SupervisorDashboard() {
     loadSupervisorData();
   }, [selectedDay]);
 
+  // Fetch detailed room attendance list
+  useEffect(() => {
+    async function loadAttendanceList() {
+      setLoadingAttendance(true);
+      try {
+        const res = await fetch(`/api/supervisor/attendance?mealType=${selectedAttendanceMeal}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.records) setAttendanceRecords(data.records);
+        }
+      } catch (err) {
+        console.error('Failed to load room attendance list:', err);
+      } finally {
+        setLoadingAttendance(false);
+      }
+    }
+
+    loadAttendanceList();
+  }, [selectedAttendanceMeal]);
+
   const currentMeals = menuData[selectedDay] || menuData['Thursday'];
 
   const handleItemChange = (mealIndex: number, itemIndex: number, newValue: string) => {
@@ -235,6 +274,15 @@ export default function SupervisorDashboard() {
       window.location.replace('/login');
     }
   };
+
+  const filteredAttendance = attendanceRecords.filter((record) => {
+    const matchesSearch =
+      record.roomNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      record.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      record.rollNumber.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = statusFilter === 'ALL' || record.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   return (
     <div className="relative min-h-screen w-full bg-[#100e14] text-[#F5E6EB] font-sans pb-20">
@@ -537,6 +585,122 @@ export default function SupervisorDashboard() {
           </div>
 
         </div>
+
+        {/* Room-by-Room Attendance Log Table */}
+        <section className="p-6 sm:p-8 rounded-[2rem] bg-[#17141f]/85 border border-[#F4A8C4]/15 backdrop-blur-md shadow-xl space-y-6">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-xl font-bold text-[#FFF0F5]">Room Attendance & Intent Log</h2>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#F4A8C4]/15 text-[#F4A8C4] border border-[#F4A8C4]/25">
+                  Live Sync
+                </span>
+              </div>
+              <p className="text-xs text-[#B3A6BC] mt-0.5">Filter by meal session, search room numbers, or track diet preferences.</p>
+            </div>
+
+            {/* Meal Selector Tabs */}
+            <div className="flex bg-[#110e16] p-1 rounded-xl border border-white/[0.07] text-xs">
+              {['BREAKFAST', 'LUNCH', 'SNACKS', 'DINNER'].map((type) => (
+                <button
+                  key={type}
+                  onClick={() => setSelectedAttendanceMeal(type)}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                    selectedAttendanceMeal === type
+                      ? 'bg-gradient-to-r from-[#F4A8C4] to-[#E8A4C8] text-[#24131C] shadow-md'
+                      : 'text-[#B3A6BC] hover:text-[#FFF0F5]'
+                  }`}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Search & Filter Bar */}
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[#7A6E85]" />
+              <input
+                type="text"
+                placeholder="Search room number, student name, or roll no..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 rounded-xl bg-[#110e16] border border-white/[0.08] text-xs text-[#FFF0F5] placeholder-[#7A6E85] focus:outline-none focus:border-[#F4A8C4]/50 focus:ring-1 focus:ring-[#F4A8C4]/20 transition-all"
+              />
+            </div>
+
+            <div className="relative flex items-center">
+              <Filter className="w-3.5 h-3.5 absolute left-3.5 text-[#7A6E85] pointer-events-none" />
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="pl-9 pr-8 py-2 rounded-xl bg-[#110e16] border border-white/[0.08] text-xs text-[#FFF0F5] focus:outline-none focus:border-[#F4A8C4]/50 transition-all cursor-pointer appearance-none"
+              >
+                <option value="ALL" className="bg-[#17141f]">All Statuses</option>
+                <option value="EATING" className="bg-[#17141f]">Eating Only</option>
+                <option value="SKIPPED" className="bg-[#17141f]">Skipping Only</option>
+                <option value="NOT_RESPONDED" className="bg-[#17141f]">No Response</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Data Table */}
+          <div className="overflow-x-auto rounded-xl border border-white/[0.06]">
+            <table className="w-full text-left text-xs text-[#D8C7D3]">
+              <thead className="bg-[#110e16] text-[11px] font-semibold text-[#8C8198] uppercase tracking-wider border-b border-white/[0.06]">
+                <tr>
+                  <th className="py-3 px-4">Room No.</th>
+                  <th className="py-3 px-4">Student Name</th>
+                  <th className="py-3 px-4">Roll No.</th>
+                  <th className="py-3 px-4">Diet</th>
+                  <th className="py-3 px-4">Intent Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.04]">
+                {loadingAttendance ? (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-[#7A6E85]">
+                      Loading real-time records...
+                    </td>
+                  </tr>
+                ) : filteredAttendance.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-[#7A6E85]">
+                      No student records found matching this filter.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredAttendance.map((item) => (
+                    <tr key={item.id} className="hover:bg-white/[0.02] transition-colors">
+                      <td className="py-3 px-4 font-mono font-bold text-[#FFF0F5]">{item.roomNumber}</td>
+                      <td className="py-3 px-4 font-medium text-[#FFF0F5]">{item.name}</td>
+                      <td className="py-3 px-4 font-mono text-[#8C8198]">{item.rollNumber}</td>
+                      <td className="py-3 px-4">
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-[#231b2c] text-[#F4A8C4] border border-[#F4A8C4]/20">
+                          {item.dietaryPref}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span
+                          className={`px-2.5 py-1 rounded-full text-[10px] font-semibold font-mono ${
+                            item.status === 'EATING'
+                              ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25'
+                              : item.status === 'SKIPPED'
+                              ? 'bg-rose-500/15 text-rose-300 border border-rose-500/25'
+                              : 'bg-amber-500/15 text-amber-300 border border-amber-500/25'
+                          }`}
+                        >
+                          {item.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
       </main>
     </div>
