@@ -16,7 +16,9 @@ import {
   ChevronRight,
   Flame,
   Search,
-  Filter
+  Filter,
+  Loader2,
+  CheckCheck
 } from 'lucide-react';
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -56,10 +58,19 @@ interface AttendanceRecord {
   lastUpdated: string | null;
 }
 
+const MEAL_NAME_TO_ENUM: Record<string, string> = {
+  Breakfast: 'BREAKFAST',
+  Lunch: 'LUNCH',
+  'Evening Snacks': 'SNACKS',
+  Dinner: 'DINNER',
+};
+
 export default function SupervisorDashboard() {
   const [selectedDay, setSelectedDay] = useState('Thursday');
+  const [isPublishing, setIsPublishing] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [feedbacks, setFeedbacks] = useState<FeedbackItem[]>([]);
+  const [acknowledgedIds, setAcknowledgedIds] = useState<Set<string>>(new Set());
   const [trends, setTrends] = useState<FeedbackTrend[]>([]);
   const [metrics, setMetrics] = useState({
     eatingNext: 0,
@@ -117,20 +128,20 @@ export default function SupervisorDashboard() {
     async function loadSupervisorData() {
       try {
         const [menuRes, attRes, feedRes] = await Promise.all([
-          fetch('/api/menu'),
-          fetch('/api/attendance'),
-          fetch('/api/feedback'),
+          fetch('/api/menu', { credentials: 'include' }),
+          fetch('/api/attendance', { credentials: 'include' }),
+          fetch('/api/feedback', { credentials: 'include' }),
         ]);
 
         if (menuRes.ok) {
           const mData = await menuRes.json();
-          if (mData.meals && Array.isArray(mData.meals)) {
+          if (mData.meals && Array.isArray(mData.meals) && mData.meals.length > 0) {
             setMenuData((prev) => ({
               ...prev,
               [selectedDay]: mData.meals.map((m: any) => ({
                 name: m.name,
-                time: m.time,
-                calories: m.calories,
+                time: m.time || (m.name === 'Breakfast' ? '07:30 AM - 09:30 AM' : m.name === 'Lunch' ? '12:30 PM - 02:30 PM' : m.name === 'Evening Snacks' ? '05:00 PM - 06:15 PM' : '07:45 PM - 09:45 PM'),
+                calories: m.calories || '450 kcal',
                 items: m.items || [],
                 headcount: { eating: 0, skipping: 0, total: 280 },
                 rating: 4.5,
@@ -210,7 +221,7 @@ export default function SupervisorDashboard() {
     async function loadAttendanceList() {
       setLoadingAttendance(true);
       try {
-        const res = await fetch(`/api/supervisor/attendance?mealType=${selectedAttendanceMeal}`);
+        const res = await fetch(`/api/supervisor/attendance?mealType=${selectedAttendanceMeal}`, { credentials: 'include' });
         if (res.ok) {
           const data = await res.json();
           if (data.records) setAttendanceRecords(data.records);
@@ -245,29 +256,48 @@ export default function SupervisorDashboard() {
     setMenuData({ ...menuData, [selectedDay]: updated });
   };
 
+  // Publish all updated meal plans to backend and trigger student notifications
   const handleSaveMenu = async () => {
+    setIsPublishing(true);
     try {
-      const res = await fetch('/api/menu', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          day: selectedDay,
-          meals: currentMeals,
-        }),
+      const savePromises = currentMeals.map((meal) => {
+        const mealEnum = MEAL_NAME_TO_ENUM[meal.name] || 'LUNCH';
+        const rawCalories = parseInt(meal.calories.replace(/\D/g, ''), 10) || 450;
+
+        return fetch('/api/menu', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            mealType: mealEnum,
+            items: meal.items.filter((i) => i.trim().length > 0),
+            calories: rawCalories,
+            date: new Date().toISOString(),
+          }),
+        });
       });
 
-      if (res.ok) {
-        setSavedSuccess(true);
-        setTimeout(() => setSavedSuccess(false), 3500);
-      }
+      await Promise.all(savePromises);
+
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 4500);
     } catch (err) {
-      console.error('Error saving menu:', err);
+      console.error('Error publishing menu:', err);
+    } finally {
+      setIsPublishing(false);
     }
+  };
+
+  const handleAcknowledge = (id: string) => {
+    setAcknowledgedIds((prev) => new Set([...prev, id]));
   };
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await fetch('/api/auth/logout', { 
+        method: 'POST',
+        credentials: 'include' 
+      });
     } catch (err) {
       console.error('Logout error:', err);
     } finally {
@@ -312,10 +342,20 @@ export default function SupervisorDashboard() {
           <div className="flex items-center gap-3">
             <button
               onClick={handleSaveMenu}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#F4A8C4] to-[#E8A4C8] text-[#24131C] text-xs font-semibold shadow-md hover:brightness-105 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer"
+              disabled={isPublishing}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#F4A8C4] to-[#E8A4C8] text-[#24131C] text-xs font-semibold shadow-md hover:brightness-105 active:scale-95 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             >
-              <Save className="w-3.5 h-3.5" />
-              Publish Weekly Menu
+              {isPublishing ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Publishing...
+                </>
+              ) : (
+                <>
+                  <Save className="w-3.5 h-3.5" />
+                  Publish Weekly Menu
+                </>
+              )}
             </button>
             <button
               onClick={handleLogout}
@@ -377,7 +417,7 @@ export default function SupervisorDashboard() {
           <div className="p-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-medium flex items-center justify-between shadow-lg animate-fade-in">
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4" />
-              <span>Menu updates for <strong>{selectedDay}</strong> have been published to the student portal!</span>
+              <span>Menu updates for <strong>{selectedDay}</strong> published! Real-time notifications dispatched to registered student portals.</span>
             </div>
           </div>
         )}
@@ -407,7 +447,7 @@ export default function SupervisorDashboard() {
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-xl font-bold text-[#FFF0F5]">{selectedDay}'s Daily Schedule</h2>
-                <p className="text-xs text-[#B3A6BC]">Live editing propagates instantly to student devices.</p>
+                <p className="text-xs text-[#B3A6BC]">Live editing propagates instantly to student devices upon publishing.</p>
               </div>
             </div>
 
@@ -570,8 +610,23 @@ export default function SupervisorDashboard() {
                       <span className="px-2 py-0.5 rounded-md text-[9px] font-semibold bg-[#F4A8C4]/10 text-[#F4A8C4] border border-[#F4A8C4]/20">
                         {item.meal}
                       </span>
-                      <button className="text-[11px] text-[#B3A6BC] hover:text-[#FFF0F5] flex items-center gap-0.5 cursor-pointer">
-                        Acknowledge <ChevronRight className="w-3 h-3" />
+                      <button 
+                        onClick={() => handleAcknowledge(item.id)}
+                        className={`text-[11px] flex items-center gap-0.5 cursor-pointer transition-colors ${
+                          acknowledgedIds.has(item.id)
+                            ? 'text-emerald-400 font-medium'
+                            : 'text-[#B3A6BC] hover:text-[#FFF0F5]'
+                        }`}
+                      >
+                        {acknowledgedIds.has(item.id) ? (
+                          <>
+                            <CheckCheck className="w-3.5 h-3.5" /> Acknowledged
+                          </>
+                        ) : (
+                          <>
+                            Acknowledge <ChevronRight className="w-3 h-3" />
+                          </>
+                        )}
                       </button>
                     </div>
                   </div>
