@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   Utensils, 
   Sparkles, 
@@ -15,7 +15,8 @@ import {
   Coffee,
   Sun,
   Moon,
-  Cookie
+  Cookie,
+  Bell
 } from 'lucide-react';
 
 interface Meal {
@@ -86,70 +87,94 @@ export default function StudentDashboard() {
 
   const [suggestion, setSuggestion] = useState('');
   const [submittedFeedback, setSubmittedFeedback] = useState(false);
+  const [activeAlert, setActiveAlert] = useState<{ title: string; message: string } | null>(null);
+  const lastAlertIdRef = useRef<string | null>(null);
 
-  // Load today's live menu and saved attendance from database
+  // Synchronize menu & attendance
+  const syncDashboardData = async () => {
+    try {
+      const [menuRes, attendanceRes] = await Promise.all([
+        fetch('/api/menu', { credentials: 'include' }),
+        fetch('/api/attendance', { credentials: 'include' }),
+      ]);
+
+      let liveMeals = [...meals];
+
+      if (menuRes.ok) {
+        const menuData = await menuRes.json();
+        if (menuData.meals && Array.isArray(menuData.meals) && menuData.meals.length > 0) {
+          liveMeals = menuData.meals.map((m: any, idx: number) => ({
+            id: String(idx + 1),
+            name: m.name,
+            time: m.time || (idx === 0 ? '07:30 AM - 09:30 AM' : idx === 1 ? '12:30 PM - 02:30 PM' : idx === 2 ? '05:00 PM - 06:15 PM' : '07:45 PM - 09:45 PM'),
+            icon: ICON_MAP[m.name] || Coffee,
+            items: m.items || [],
+            calories: m.calories || '450 kcal',
+            status: 'PENDING',
+            rating: 0,
+          }));
+        }
+      }
+
+      if (attendanceRes.ok) {
+        const attendanceData = await attendanceRes.json();
+        const userAtt = attendanceData.userAttendance || {};
+
+        const enumToMealName: Record<string, string> = {
+          BREAKFAST: 'Breakfast',
+          LUNCH: 'Lunch',
+          SNACKS: 'Evening Snacks',
+          DINNER: 'Dinner',
+        };
+
+        liveMeals = liveMeals.map((meal) => {
+          const currentEnum = Object.keys(enumToMealName).find(
+            (key) => enumToMealName[key] === meal.name
+          );
+          const savedStatus = currentEnum ? userAtt[currentEnum] : null;
+
+          return {
+            ...meal,
+            status:
+              savedStatus === 'EATING'
+                ? 'EATING'
+                : savedStatus === 'SKIPPED'
+                ? 'SKIPPING'
+                : 'PENDING',
+          };
+        });
+      }
+
+      setMeals(liveMeals);
+    } catch (err) {
+      console.error('Failed to sync live dashboard data:', err);
+    }
+  };
+
   useEffect(() => {
-    async function syncDashboardData() {
+    syncDashboardData();
+
+    // Poll for menu update notifications every 10 seconds
+    const pollInterval = setInterval(async () => {
       try {
-        const [menuRes, attendanceRes] = await Promise.all([
-          fetch('/api/menu', { credentials: 'include' }),
-          fetch('/api/attendance', { credentials: 'include' }),
-        ]);
+        const res = await fetch('/api/notifications', { credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json();
+          const latest = data.notifications?.[0];
 
-        let liveMeals = meals;
-
-        if (menuRes.ok) {
-          const menuData = await menuRes.json();
-          if (menuData.meals && Array.isArray(menuData.meals)) {
-            liveMeals = menuData.meals.map((m: any, idx: number) => ({
-              id: String(idx + 1),
-              name: m.name,
-              time: m.time || '08:00 AM - 09:00 AM',
-              icon: ICON_MAP[m.name] || Coffee,
-              items: m.items || [],
-              calories: m.calories || '450 kcal',
-              status: 'PENDING',
-              rating: 0,
-            }));
+          if (latest && latest.id !== lastAlertIdRef.current) {
+            lastAlertIdRef.current = latest.id;
+            setActiveAlert({ title: latest.title, message: latest.message });
+            syncDashboardData(); // Refresh menu cards on new update
+            setTimeout(() => setActiveAlert(null), 7000);
           }
         }
-
-        if (attendanceRes.ok) {
-          const attendanceData = await attendanceRes.json();
-          const userAtt = attendanceData.userAttendance || {};
-
-          const enumToMealName: Record<string, string> = {
-            BREAKFAST: 'Breakfast',
-            LUNCH: 'Lunch',
-            SNACKS: 'Evening Snacks',
-            DINNER: 'Dinner',
-          };
-
-          liveMeals = liveMeals.map((meal) => {
-            const currentEnum = Object.keys(enumToMealName).find(
-              (key) => enumToMealName[key] === meal.name
-            );
-            const savedStatus = currentEnum ? userAtt[currentEnum] : null;
-
-            return {
-              ...meal,
-              status:
-                savedStatus === 'EATING'
-                  ? 'EATING'
-                  : savedStatus === 'SKIPPED'
-                  ? 'SKIPPING'
-                  : 'PENDING',
-            };
-          });
-        }
-
-        setMeals(liveMeals);
-      } catch (err) {
-        console.error('Failed to sync live dashboard data:', err);
+      } catch (e) {
+        console.error('Notification poll error:', e);
       }
-    }
+    }, 10000);
 
-    syncDashboardData();
+    return () => clearInterval(pollInterval);
   }, []);
 
   const toggleMealAttendance = async (id: string, newStatus: 'EATING' | 'SKIPPING') => {
@@ -158,12 +183,10 @@ export default function StudentDashboard() {
 
     const nextStatus = targetMeal.status === newStatus ? 'PENDING' : newStatus;
 
-    // Optimistic UI update
     setMeals((prev) =>
       prev.map((meal) => (meal.id === id ? { ...meal, status: nextStatus } : meal))
     );
 
-    // Save to Database
     try {
       await fetch('/api/attendance', {
         method: 'POST',
@@ -245,6 +268,24 @@ export default function StudentDashboard() {
   return (
     <div className="relative min-h-screen w-full bg-[#100e14] text-[#F5E6EB] font-sans pb-16">
       
+      {/* Real-time Notification Toast */}
+      {activeAlert && (
+        <div className="fixed top-6 right-6 z-50 max-w-sm p-4 rounded-2xl bg-[#231b2c]/95 border border-[#F4A8C4]/40 shadow-2xl backdrop-blur-xl animate-in slide-in-from-top-4 duration-300">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-[#F4A8C4]/15 text-[#F4A8C4] shrink-0">
+              <Bell className="w-4 h-4" />
+            </div>
+            <div className="flex-1">
+              <h4 className="text-xs font-semibold text-[#FFF0F5]">{activeAlert.title}</h4>
+              <p className="text-[11px] text-[#B3A6BC] mt-0.5 leading-relaxed">{activeAlert.message}</p>
+            </div>
+            <button onClick={() => setActiveAlert(null)} className="text-[#8C8198] hover:text-[#FFF0F5]">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Ambient Glows */}
       <div className="fixed -top-24 -left-24 w-[480px] h-[480px] bg-[#E8A598]/10 rounded-full blur-[160px] pointer-events-none" />
       <div className="fixed -bottom-24 -right-24 w-[500px] h-[500px] bg-[#E8A4C8]/15 rounded-full blur-[180px] pointer-events-none" />
@@ -359,7 +400,6 @@ export default function StudentDashboard() {
 
                 {/* Rating & Attendance Toggle */}
                 <div className="pt-4 border-t border-white/[0.05] flex flex-col gap-3">
-                  {/* Star Rating */}
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-[#B3A6BC]">Rate this meal:</span>
                     <div className="flex gap-1">
@@ -382,7 +422,6 @@ export default function StudentDashboard() {
                     </div>
                   </div>
 
-                  {/* Eating / Skipping Buttons */}
                   <div className="grid grid-cols-2 gap-2 mt-1">
                     <button
                       onClick={() => toggleMealAttendance(meal.id, 'EATING')}
